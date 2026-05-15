@@ -3,10 +3,18 @@
   "description": "Asset manifest for the NikePig buy bot. The bot fetches this at startup and downloads every listed file into a local cache. Update both arrays when adding or removing graphics.",
   "version": 2,
   "regular": [
-    "regular/Green.png",
-    "regular/IMG_1479.png"
+    "regular/charles-karate.png",
+    "regular/epic-green.png",
+    "regular/gf-rocket.png",
+    "regular/heist.png",
+    "regular/nike-thrusters.png",
+    "regular/poppy-nike-ride.png",
+    "regular/poppy-rocket.png"
   ],
   "whales": [
-    "whales/mematicMeme.gif"
+    "whales/all-of-them.png",
+    "whales/mount-pigsmore.png",
+    "whales/nike-whale.png",
+    "whales/phallic-green.png"
   ]
 }
