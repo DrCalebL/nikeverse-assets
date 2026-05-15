@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Asset manifest for the NikePig buy bot. Update this file when adding or removing graphics; the bot fetches it at startup.",
+  "version": 1,
+  "images": [
+    "images/Green.png",
+    "images/IMG_1479.png"
+  ],
+  "gifs": [
+    "gifs/mematicMeme.gif"
+  ]
+}
