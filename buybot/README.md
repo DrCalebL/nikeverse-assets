@@ -7,32 +7,34 @@ Graphics consumed by the [NikePig Buy Bot](https://github.com/DrCalebL/nikepig-b
 ```
 buybot/
 ├── manifest.json   # the list of files the bot will download
-├── images/         # PNG / JPG — used for normal buys
-└── gifs/           # GIF — used for whale alerts (above BIG_BUY_THRESHOLD_ADA)
+├── regular/        # backgrounds for normal buys (small + medium ADA amounts)
+└── whales/         # backgrounds for whale alerts (above BIG_BUY_THRESHOLD_ADA)
 ```
+
+Both folders accept `.png`, `.jpg`, `.jpeg`, and `.gif`. GIFs are read as their first frame and stamped with the canvas template — the animation is not preserved, so prefer PNGs / JPGs unless you specifically want a GIF's first frame as a background.
 
 The bot does **not** scan these folders automatically — it reads `manifest.json` and downloads only the files listed there. Any file you upload but forget to add to the manifest will be silently ignored.
 
 ## Adding new graphics
 
 ### Quick version
-1. Upload the file into `buybot/images/` or `buybot/gifs/`.
-2. Add its relative path (e.g. `images/new-pig.png`) to the right array in `manifest.json`.
+1. Upload the file into `buybot/regular/` or `buybot/whales/`.
+2. Add its relative path (e.g. `regular/new-pig.png`) to the right array in `manifest.json`.
 3. Commit + push to `main`.
 4. Restart the bot on Railway (or wait for the next auto-deploy if you're pushing buybot changes too).
 
 ### Bulk upload via GitHub web UI
-1. Open the [`buybot/images`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/images) or [`buybot/gifs`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/gifs) folder on GitHub.
+1. Open the [`buybot/regular`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/regular) or [`buybot/whales`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/whales) folder on GitHub.
 2. Click **Add file → Upload files** and drag-drop everything in.
-3. In the same commit (or a follow-up), edit `manifest.json` and append each new file's path to `images` or `gifs`.
+3. In the same commit (or a follow-up), edit `manifest.json` and append each new file's path to `regular` or `whales`.
 4. Commit to `main`.
 
 ### Bulk upload via git
 ```bash
 git clone git@github.com:DrCalebL/nikeverse-assets.git
 cd nikeverse-assets
-cp ~/Downloads/pigs/*.png buybot/images/
-cp ~/Downloads/whales/*.gif buybot/gifs/
+cp ~/Downloads/pigs/*.png buybot/regular/
+cp ~/Downloads/whales/*.png buybot/whales/
 # regenerate manifest.json (see snippet below) or hand-edit it
 git add buybot/
 git commit -m "feat(buybot): add more graphics"
@@ -45,17 +47,17 @@ From the repo root, this one-liner rebuilds the manifest from whatever is on dis
 ```bash
 node -e '
 const fs = require("fs"), p = require("path");
-const list = (d, exts) =>
+const list = (d) =>
   fs.readdirSync(p.join("buybot", d))
-    .filter(f => exts.some(e => f.toLowerCase().endsWith(e)))
+    .filter(f => /\.(png|jpe?g|gif)$/i.test(f))
     .sort()
     .map(f => `${d}/${f}`);
 const manifest = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   description: "Asset manifest for the NikePig buy bot.",
-  version: 1,
-  images: list("images", [".png", ".jpg", ".jpeg"]),
-  gifs: list("gifs", [".gif"]),
+  version: 2,
+  regular: list("regular"),
+  whales: list("whales"),
 };
 fs.writeFileSync("buybot/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 '
@@ -65,11 +67,10 @@ fs.writeFileSync("buybot/manifest.json", JSON.stringify(manifest, null, 2) + "\n
 
 | Rule | Why |
 |------|-----|
-| **Images:** `.png`, `.jpg`, `.jpeg` only | The bot's regex filter ignores everything else |
-| **GIFs:** `.gif` only | Same reason |
+| **Formats:** `.png`, `.jpg`, `.jpeg`, `.gif` | The bot's regex filter accepts these; everything else is silently ignored |
 | **Filenames:** alphanumeric, dashes, underscores | Spaces and special chars survive URLs but cause friction; safer to avoid |
-| **Per-file size:** keep under 8 MB | Discord's default upload cap for non-Nitro servers. Boosted servers go higher but 8 MB is the safe ceiling |
-| **Recommended dimensions:** 1024×1024 to 2048×2048 | Discord embeds render best around this size; the bot stamps text on top, so leave the corners reasonably clean |
+| **Per-file size:** keep under 8 MB | Discord's default upload cap for non-Nitro servers |
+| **Recommended dimensions:** 1280×1280 or 1920×1080 or larger | The cluster scales down on smaller backgrounds; ≥1280 on the short side keeps it sharp |
 
 The bot doesn't resize or compress — what you upload is what gets posted.
 
