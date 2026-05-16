@@ -8,6 +8,7 @@ Graphics consumed by the [NikePig Buy Bot](https://github.com/DrCalebL/nikepig-b
 buybot/
 ├── manifest.json   # the list of files the bot will download
 ├── regular/        # backgrounds for normal buys (small + medium ADA amounts)
+├── nice/           # backgrounds for 69 ADA buys specifically (the meme tier)
 └── whales/         # backgrounds for whale alerts (above BIG_BUY_THRESHOLD_ADA)
 ```
 
