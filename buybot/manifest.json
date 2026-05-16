@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Asset manifest for the NikePig buy bot. The bot fetches this at startup and downloads every listed file into a local cache. Update both arrays when adding or removing graphics.",
-  "version": 2,
+  "version": 3,
   "regular": [
     "regular/charles-karate.png",
     "regular/epic-green.png",
@@ -11,6 +11,7 @@
     "regular/poppy-nike-ride.png",
     "regular/poppy-rocket.png"
   ],
+  "nice": [],
   "whales": [
     "whales/all-of-them.png",
     "whales/gf-whale.png",
