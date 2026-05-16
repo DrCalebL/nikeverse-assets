@@ -11,7 +11,13 @@
     "regular/poppy-nike-ride.png",
     "regular/poppy-rocket.png"
   ],
-  "nice": [],
+  "nice": [
+    "nice/all-four-planes.png",
+    "nice/all-four-train.png",
+    "nice/charles-subway.png",
+    "nice/gf-concert.png",
+    "nice/poppy-surf.png"
+  ],
   "whales": [
     "whales/all-of-them.png",
     "whales/gf-whale.png",
