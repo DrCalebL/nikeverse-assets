@@ -5,7 +5,7 @@
   "regular": [
     "regular/charles-karate.png",
     "regular/epic-green.png",
-    "regular/gf-rocket.png",
+    "regular/gf-magical.png",
     "regular/heist.png",
     "regular/nike-thrusters.png",
     "regular/poppy-nike-ride.png",
@@ -13,6 +13,7 @@
   ],
   "whales": [
     "whales/all-of-them.png",
+    "whales/gf-whale.png",
     "whales/mount-pigsmore.png",
     "whales/nike-whale.png",
     "whales/phallic-green.png"
