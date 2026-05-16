@@ -14,6 +14,12 @@ on:
 permissions:
   contents: write
 
+# Serialize runs so two near-simultaneous uploads never race on `git push`.
+# A second push queues behind the first instead of being cancelled.
+concurrency:
+  group: regenerate-manifest
+  cancel-in-progress: false
+
 jobs:
   regenerate:
     runs-on: ubuntu-latest
@@ -22,6 +28,7 @@ jobs:
 
       - name: Regenerate manifest from disk
         run: |
+          set -euo pipefail
           node -e '
           const fs = require("fs"), p = require("path");
           const list = (d) =>
@@ -42,12 +49,24 @@ jobs:
 
       - name: Commit + push if manifest changed
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -n "$(git status --porcelain buybot/manifest.json)" ]]; then
-            git add buybot/manifest.json
-            git commit -m "chore(buybot): auto-regenerate manifest [skip ci]"
-            git push
-          else
+          if [[ -z "$(git status --porcelain buybot/manifest.json)" ]]; then
             echo "Manifest already in sync; nothing to commit."
+            exit 0
           fi
+          git add buybot/manifest.json
+          git commit -m "chore(buybot): auto-regenerate manifest [skip ci]"
+          # Rebase onto any commits that landed on main while we were
+          # working, then push. Belt-and-braces alongside the concurrency
+          # group above for the rare case of an external direct push.
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push attempt $attempt rejected; rebasing and retrying."
+            git pull --rebase origin main
+          done
+          echo "Push failed after retries." >&2
+          exit 1
