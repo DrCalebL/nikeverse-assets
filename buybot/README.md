@@ -6,57 +6,61 @@ Graphics consumed by the [NikePig Buy Bot](https://github.com/DrCalebL/nikepig-b
 
 ```
 buybot/
-├── manifest.json   # the list of files the bot will download
+├── manifest.json   # auto-generated list of files the bot downloads (do not hand-edit)
 ├── regular/        # backgrounds for normal buys (small + medium ADA amounts)
+├── nice/           # backgrounds for ~69 ADA buys (the meme tier; triggered when the displayed amount rounds to 69)
 └── whales/         # backgrounds for whale alerts (above BIG_BUY_THRESHOLD_ADA)
 ```
 
-Both folders accept `.png`, `.jpg`, `.jpeg`, and `.gif`. GIFs are read as their first frame and stamped with the canvas template — the animation is not preserved, so prefer PNGs / JPGs unless you specifically want a GIF's first frame as a background.
+All three folders accept `.png`, `.jpg`, `.jpeg`, and `.gif`. GIFs are read as their first frame and stamped with the canvas template — the animation is not preserved, so prefer PNGs / JPGs unless you specifically want a GIF's first frame as a background.
 
-The bot does **not** scan these folders automatically — it reads `manifest.json` and downloads only the files listed there. Any file you upload but forget to add to the manifest will be silently ignored.
+The bot reads `manifest.json` at startup and downloads only the files listed there. A GitHub Action regenerates the manifest on every push to `main` that touches `buybot/{regular,nice,whales}/**`, so in normal use you just upload to a folder and push — no manual manifest edit needed.
 
 ## Adding new graphics
 
 ### Quick version
-1. Upload the file into `buybot/regular/` or `buybot/whales/`.
-2. Add its relative path (e.g. `regular/new-pig.png`) to the right array in `manifest.json`.
-3. Commit + push to `main`.
-4. Restart the bot on Railway (or wait for the next auto-deploy if you're pushing buybot changes too).
+1. Upload the file into `buybot/regular/`, `buybot/nice/`, or `buybot/whales/`.
+2. Push to `main`. The [`regenerate-manifest`](../.github/workflows/regenerate-manifest.yml) GitHub Action rewrites `manifest.json` for you — no need to hand-edit it.
+3. Restart the bot on Railway (or wait for the next auto-deploy if you're pushing buybot changes too) so it picks up the new files.
 
 ### Bulk upload via GitHub web UI
-1. Open the [`buybot/regular`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/regular) or [`buybot/whales`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/whales) folder on GitHub.
+1. Open the [`buybot/regular`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/regular), [`buybot/nice`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/nice), or [`buybot/whales`](https://github.com/DrCalebL/nikeverse-assets/tree/main/buybot/whales) folder on GitHub.
 2. Click **Add file → Upload files** and drag-drop everything in.
-3. In the same commit (or a follow-up), edit `manifest.json` and append each new file's path to `regular` or `whales`.
-4. Commit to `main`.
+3. Commit to `main`. The auto-regen workflow handles `manifest.json`.
 
 ### Bulk upload via git
 ```bash
 git clone git@github.com:DrCalebL/nikeverse-assets.git
 cd nikeverse-assets
 cp ~/Downloads/pigs/*.png buybot/regular/
+cp ~/Downloads/sixty-nines/*.png buybot/nice/
 cp ~/Downloads/whales/*.png buybot/whales/
-# regenerate manifest.json (see snippet below) or hand-edit it
 git add buybot/
 git commit -m "feat(buybot): add more graphics"
 git push
+# manifest.json is regenerated automatically by the GitHub Action.
 ```
 
-### Regenerating `manifest.json` automatically
-From the repo root, this one-liner rebuilds the manifest from whatever is on disk:
+### Regenerating `manifest.json` manually
+The GitHub Action does this on every push to `main` that touches `buybot/{regular,nice,whales}/**`. If you ever need to run it locally (e.g. to test offline), from the repo root:
 
 ```bash
 node -e '
 const fs = require("fs"), p = require("path");
-const list = (d) =>
-  fs.readdirSync(p.join("buybot", d))
+const list = (d) => {
+  const dir = p.join("buybot", d);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
     .filter(f => /\.(png|jpe?g|gif)$/i.test(f))
     .sort()
     .map(f => `${d}/${f}`);
+};
 const manifest = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   description: "Asset manifest for the NikePig buy bot.",
-  version: 2,
+  version: 3,
   regular: list("regular"),
+  nice: list("nice"),
   whales: list("whales"),
 };
 fs.writeFileSync("buybot/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
