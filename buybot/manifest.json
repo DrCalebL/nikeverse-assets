@@ -18,7 +18,9 @@
     "nice/gf-concert.png",
     "nice/poppy-surf.png"
   ],
-  "birthday": [],
+  "birthday": [
+    "birthday/birthday.png"
+  ],
   "fourTwenty": [
     "four-twenty/all-four-candle.png",
     "four-twenty/all-four-canopy.png",

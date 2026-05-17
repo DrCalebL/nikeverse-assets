@@ -36,37 +36,55 @@ jobs:
   regenerate:
     runs-on: ubuntu-latest
     steps:
+      # ref: main forces checkout of the latest main HEAD (not the
+      # trigger commit's github.sha). Two near-simultaneous pushes
+      # otherwise produce two runs that each see their own snapshot —
+      # the second run can then write a manifest that's stale w.r.t.
+      # the first run's commit but happens to equal its own snapshot's
+      # baseline, so `git status` reports no diff and the second run
+      # exits silently. ref:main + the in-loop reset below guarantee
+      # the regen always runs against the actual current state.
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          # fetch-depth: 0 lets `git fetch + reset --hard` inside the
+          # retry loop see history beyond a shallow snapshot.
+          fetch-depth: 0
 
-      - name: Regenerate manifest from disk
-        run: node .github/scripts/regenerate-manifest.js
-
-      - name: Sanity-check committed manifest parses + tier counts match disk
-        run: node .github/scripts/verify-manifest.js
-
-      - name: Commit + push if manifest changed
+      - name: Regenerate, commit, and push (race-safe)
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -z "$(git status --porcelain buybot/manifest.json)" ]]; then
-            echo "Manifest already in sync; nothing to commit."
-            echo "_Manifest already in sync; no commit made._" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git add buybot/manifest.json
-          git commit -m "chore(buybot): auto-regenerate manifest [skip ci]"
-          # Rebase onto any commits that landed on main while we were
-          # working, then push. Belt-and-braces alongside the concurrency
-          # group above for the rare case of an external direct push.
+
           for attempt in 1 2 3; do
+            # Re-sync to latest main on EVERY attempt. If another run
+            # landed a commit between our last attempt and this one,
+            # we regenerate against the new baseline and overwrite
+            # cleanly instead of getting tangled in a rebase conflict
+            # on manifest.json.
+            git fetch origin main
+            git reset --hard origin/main
+
+            node .github/scripts/regenerate-manifest.js
+            node .github/scripts/verify-manifest.js
+
+            if [[ -z "$(git status --porcelain buybot/manifest.json)" ]]; then
+              echo "Manifest already in sync; nothing to commit."
+              echo "_Manifest already in sync; no commit made._" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            git add buybot/manifest.json
+            git commit -m "chore(buybot): auto-regenerate manifest [skip ci]"
+
             if git push; then
               echo "_Pushed regenerated manifest on attempt $attempt._" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "Push attempt $attempt rejected; rebasing and retrying."
-            git pull --rebase origin main
+            echo "Push attempt $attempt rejected; will re-sync + re-regenerate on next attempt."
           done
+
           echo "::error::Push failed after 3 retries."
           echo "_**Push failed after 3 retries.** Inspect the run log and re-run via workflow_dispatch._" >> "$GITHUB_STEP_SUMMARY"
           exit 1
