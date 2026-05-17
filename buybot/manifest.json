@@ -21,7 +21,13 @@
   "birthday": [
     "birthday/birthday.png"
   ],
-  "fourTwenty": [],
+  "fourTwenty": [
+    "four-twenty/all-four-candle.png",
+    "four-twenty/all-four-canopy.png",
+    "four-twenty/charles-rooftop.png",
+    "four-twenty/gf-magic-carpet.png",
+    "four-twenty/poppy-slide.png"
+  ],
   "whales": [
     "whales/all-of-them.png",
     "whales/gf-whale.png",
