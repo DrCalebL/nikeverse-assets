@@ -8,13 +8,17 @@ Graphics consumed by the [NikePig Buy Bot](https://github.com/DrCalebL/nikepig-b
 buybot/
 ├── manifest.json   # auto-generated list of files the bot downloads (do not hand-edit)
 ├── regular/        # backgrounds for normal buys (small + medium ADA amounts)
-├── nice/           # backgrounds for ~69 ADA buys (the meme tier; triggered when the displayed amount rounds to 69)
+├── nice/           # ~69 ADA buys — the meme tier (fires when displayed amount rounds to 69)
+├── birthday/       # ~176 ADA buys — NikePig birthday (17 June, fires when rounds to 176)
+├── four-twenty/    # ~420 ADA buys — get high like degens (fires when rounds to 420)
 └── whales/         # backgrounds for whale alerts (above BIG_BUY_THRESHOLD_ADA)
 ```
 
-All three folders accept `.png`, `.jpg`, `.jpeg`, and `.gif`. GIFs are read as their first frame and stamped with the canvas template — the animation is not preserved, so prefer PNGs / JPGs unless you specifically want a GIF's first frame as a background.
+All folders accept `.png`, `.jpg`, `.jpeg`, and `.gif`. GIFs are read as their first frame and stamped with the canvas template — the animation is not preserved, so prefer PNGs / JPGs unless you specifically want a GIF's first frame as a background.
 
-The bot reads `manifest.json` at startup and downloads only the files listed there. A GitHub Action regenerates the manifest on every push to `main` that touches `buybot/{regular,nice,whales}/**`, so in normal use you just upload to a folder and push — no manual manifest edit needed.
+The bot reads `manifest.json` at startup and downloads only the files listed there. A GitHub Action regenerates the manifest on every push to `main` that touches `buybot/{regular,nice,birthday,four-twenty,whales}/**`, so in normal use you just upload to a folder and push — no manual manifest edit needed.
+
+**Tier precedence**: meme tiers (nice / birthday / four-twenty) win over whale; whale wins over regular. The meme tiers key off the *displayed* (rounded) ADA value, so a 175.6 ADA pool-net buy still triggers the birthday tier.
 
 ## Adding new graphics
 
@@ -34,6 +38,8 @@ git clone git@github.com:DrCalebL/nikeverse-assets.git
 cd nikeverse-assets
 cp ~/Downloads/pigs/*.png buybot/regular/
 cp ~/Downloads/sixty-nines/*.png buybot/nice/
+cp ~/Downloads/birthday/*.png    buybot/birthday/
+cp ~/Downloads/four-twenties/*.png buybot/four-twenty/
 cp ~/Downloads/whales/*.png buybot/whales/
 git add buybot/
 git commit -m "feat(buybot): add more graphics"
@@ -42,7 +48,7 @@ git push
 ```
 
 ### Regenerating `manifest.json` manually
-The GitHub Action does this on every push to `main` that touches `buybot/{regular,nice,whales}/**`. If you ever need to run it locally (e.g. to test offline), from the repo root:
+The GitHub Action does this on every push to `main` that touches `buybot/{regular,nice,birthday,four-twenty,whales}/**`. If you ever need to run it locally (e.g. to test offline), from the repo root:
 
 ```bash
 node -e '
@@ -58,9 +64,11 @@ const list = (d) => {
 const manifest = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   description: "Asset manifest for the NikePig buy bot.",
-  version: 3,
+  version: 4,
   regular: list("regular"),
   nice: list("nice"),
+  birthday: list("birthday"),
+  fourTwenty: list("four-twenty"),
   whales: list("whales"),
 };
 fs.writeFileSync("buybot/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
