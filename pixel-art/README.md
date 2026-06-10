@@ -13,6 +13,12 @@ Corrupted variants shift the palette toward void-purple with glowing
 eyes and corruption wisps. Generated deterministically by
 `tools/gen_nikes.mjs` (168-feature library, per-key mapping table).
 
+## `nikes-back/` — back-view battle sprites
+292 seen-from-behind counterparts of the adapted set (player-side
+battle art, Pokemon staging): same palette/stance/features per nike,
+curly tail signature, back items dominant, held items hand-consistent
+across the turn. From the same generator's back pass.
+
 ## `nikes-cutouts/` — background-removed render cutouts
 The previous generation: each 1024px render reduced to a 64px quantized
 cutout with the background fully segmented away (adaptive flood fill +

@@ -40,7 +40,9 @@ const WEB = path.resolve(__dirname, '..');
 const ROOT = path.resolve(WEB, '..');
 const SPRITE_DIR = path.join(WEB, 'assets', 'sprites');
 const CORRUPT_DIR = path.join(WEB, 'assets', 'sprites-corrupt');
+const BACK_DIR = path.join(WEB, 'assets', 'sprites-back');
 const SHEET_DIR = '/tmp/nv-nikes2';
+const BACK_SHEET_DIR = '/tmp/nv-backs';
 
 // Pinned commit whose blobs hold the ORIGINAL 64px cutouts. Reading the
 // originals from git (not the working tree) keeps palette extraction —
@@ -1624,6 +1626,762 @@ F('glitchPix', 'post', (g, r, m) => {
 });
 
 // =====================================================================
+// BACK VIEW — battle sprites of the player's own team, seen from behind
+// (Pokemon convention). NOT a mirror flip: a dedicated rear template plus
+// a per-feature back-variant table. Reuses the SAME per-key palette, the
+// SAME stance/proportion seed (planBase replays identically off
+// fnv('nv-nike:'+key)) and the SAME feature mapping, so front and back
+// are visibly one character.
+//
+// Template: back of the round head (no face/eyes/snout), droopy ears in
+// outer-ear color only, shoulders/back/pot-belly silhouette from the
+// rear, stubby legs, and the signature PINK CURLY TAIL center-low. The
+// tail uses SNOUT/SNOUT_D (outside SKIN_FAM) so clothe()-style costumes
+// leave it poking through a tail hole; full-length robes/capes drawn as
+// unconditional rows cover it, which is costume-accurate. The head sits
+// 1px right of the spine as a 3/4 hint toward the enemy platform
+// (upper-right). Light stays top-left (shared shadePass).
+//
+// Feature back-variants (BACKS): every FEATS key must map to a painter
+// or an explicit 'hidden' marker — enforced at startup. Conventions:
+//  - back items (wings/capes/jetpacks/backpacks/guitars/sacks/shields)
+//    become FOREGROUND and dominate the back view
+//  - held items are drawn on the 'back' layer so the body occludes them
+//    naturally and only tips peek past the silhouette edge; hand-held
+//    painters are mirrored around the body axis (BACK_MIRRORED below) so
+//    the item stays in the same hand seen from behind
+//  - face gear is hidden except side hints (visor strap, glasses arms,
+//    tusk tips, beard tufts)
+//  - chest patterns are replaced by a subtle seeded back-of-outfit
+//    detail (yoke/stripe/patch in the front pattern's accent color)
+// =====================================================================
+const BACKS = {};
+const BB = (name, layer, draw) => { BACKS[name] = { layer, draw }; };
+const BHIDE = (name) => { BACKS[name] = 'hidden'; };
+// reuse the front painter (geometry already reads correctly from behind),
+// optionally on a different layer (held items -> 'back' for occlusion)
+const BSAME = (name, layer) => {
+  BACKS[name] = { layer: layer || FEATS[name].layer, draw: FEATS[name].draw };
+};
+
+// ---------- rear base template ----------
+function drawTailCurl(g, m) {
+  // signature curly tail, center-low on the rump. Pink (snout family) so
+  // it pops against any skin and survives clothe()-based costumes.
+  const tx = m.bx, ty = Math.round(m.by + m.bry) - 4;
+  g.set(tx - 1, ty - 2, C.SNOUT); g.set(tx, ty - 2, C.SNOUT);   // top arc
+  g.set(tx + 1, ty - 1, C.SNOUT); g.set(tx + 1, ty, C.SNOUT);   // right
+  g.set(tx, ty + 1, C.SNOUT_D); g.set(tx - 1, ty + 1, C.SNOUT_D); // bottom (shaded)
+  g.set(tx - 2, ty, C.SNOUT_D); g.set(tx - 2, ty - 1, C.SNOUT); // left
+  g.set(tx - 1, ty - 1, C.SNOUT_D);                             // inner curl tip
+}
+
+function drawPigBack(g, r, m) {
+  const { hx, hy, hw, hh, bx, by, brx, bry, shoulderY, armW, legW } = m;
+  const headTop = Math.round(hy - hh);
+  // ears from behind: outer-ear color only (no inner-ear fold), same
+  // droopy silhouette as the front
+  const earLX = hx - hw + 1, earRX = hx + hw - 2;
+  m.earLX = earLX; m.earRX = earRX;
+  for (const ex of [earLX, earRX]) {
+    const dir = ex < hx ? -1 : 1;
+    g.set(ex, headTop - 1, C.SKIN);
+    g.set(ex + dir, headTop - 1, C.SKIN);
+    g.set(ex + dir, headTop, C.SKIN);                      // outer ear, no SNOUT fold
+    g.set(ex + dir * 2, headTop, C.SKIN);
+    g.set(ex + dir * 2, headTop + 1, C.SKIN_D);
+  }
+  // body + neck + back of head (no belly disc — this is the back)
+  g.disc(bx, by, brx, bry, C.SKIN);
+  g.rect(hx - 2, Math.round(hy + hh) - 2, 5, 3, C.SKIN);
+  g.disc(hx, hy, hw, hh, C.SKIN);
+  // shoulder-blade hints
+  g.set(bx - 3, shoulderY + 1, C.SKIN_D); g.set(bx - 2, shoulderY + 1, C.SKIN_D);
+  g.set(bx + 2, shoulderY + 1, C.SKIN_D); g.set(bx + 3, shoulderY + 1, C.SKIN_D);
+  // arms
+  g.line(bx - brx + 1, shoulderY, m.handL[0] + 1, m.handL[1] - 1, C.SKIN, armW);
+  g.line(bx + brx - armW, shoulderY, m.handR[0] - 1, m.handR[1] - 1, C.SKIN, armW);
+  g.rect(m.handL[0], m.handL[1], 2, 1, C.SKIN_D);
+  g.rect(m.handR[0], m.handR[1], 2, 1, C.SKIN_D);
+  // legs + feet
+  const legY = Math.round(by + bry) - 2;
+  const legLX = bx - Math.max(3, Math.round(brx * 0.55)) - (legW - 2);
+  const legRX = bx + Math.max(3, Math.round(brx * 0.55)) - 1;
+  m.legY = legY; m.legLX = legLX; m.legRX = legRX;
+  g.rect(legLX, legY, legW, 30 - legY, C.SKIN);
+  g.rect(legRX, legY, legW, 30 - legY, C.SKIN);
+  g.rect(legLX, 30, legW, 1, C.SKIN_D);
+  g.rect(legRX, 30, legW, 1, C.SKIN_D);
+  // the signature curly tail (after the body so it sits on the rump)
+  drawTailCurl(g, m);
+  // NO face: no eyes, no snout.
+}
+
+// ---------- back items: now FOREGROUND, drawn large ----------
+BB('wings', 'held', (g, r, m, o) => {
+  const yA = m.shoulderY - 1;                              // shoulder-blade anchor
+  if (o.bat) {
+    for (const s of [-1, 1]) {
+      const x0 = m.bx + s * 2;
+      g.line(x0, yA, x0 + s * 7, yA - 7, C.CLOTH_D, 2);    // wing arm
+      g.set(x0 + s * 8, yA - 8, C.ACC);                    // claw
+      const scallop = [1, 3, 2, 4, 3, 4, 2];               // membrane columns
+      for (let d = 1; d <= 7; d++) {
+        const x = x0 + s * d;
+        for (let y = yA - d; y <= yA + scallop[d - 1]; y++) g.set(x, y, C.CLOTH_D);
+      }
+      g.line(x0 + s * 2, yA - 1, x0 + s * 2, yA + 2, C.DARK, 1); // ribs
+      g.line(x0 + s * 5, yA - 4, x0 + s * 5, yA + 3, C.DARK, 1);
+    }
+  } else {
+    const main = o.flame ? C.ACC : C.WHITE, edge = o.flame ? C.GLOW : C.GREY;
+    // [rise above anchor, column length] per column out from the spine
+    const prof = [[1, 5], [3, 6], [5, 7], [6, 7], [7, 6], [7, 5], [6, 4], [4, 2]];
+    for (const s of [-1, 1]) {
+      const x0 = m.bx + s * 2;
+      for (let d = 0; d < prof.length; d++) {
+        const [rise, len] = prof[d];
+        const x = x0 + s * d;
+        g.rect(x, yA - rise, 1, len, main);
+        g.set(x, yA - rise + len, edge);                   // feather tip
+      }
+      if (o.four) {                                        // seraph lower pair
+        g.line(x0 + s, yA + 5, x0 + s * 6, yA + 8, main, 2);
+        g.set(x0 + s * 7, yA + 9, edge);
+      }
+    }
+  }
+});
+BB('cape', 'body', (g, r, m) => {
+  // the cape IS the back view: full drape from the shoulders to the boots
+  const y0 = m.shoulderY - 2;
+  for (let y = y0; y <= 29; y++) {
+    const w = Math.min(m.brx + 3, 2 + Math.floor((y - y0) * 0.6));
+    g.rect(m.bx - w, y, w * 2 + 1, 1, C.CLOTH_D);
+  }
+  g.rect(m.bx - 4, y0 - 1, 9, 1, C.CLOTH_D);               // collar
+  g.set(m.bx - 4, y0 - 1, C.GOLD); g.set(m.bx + 4, y0 - 1, C.GOLD); // clasps
+  g.line(m.bx - 2, y0 + 4, m.bx - 3, 28, C.XDARK, 1);      // fold creases
+  g.line(m.bx + 2, y0 + 4, m.bx + 3, 28, C.XDARK, 1);
+});
+BB('jetpack', 'held', (g, r, m) => {
+  for (const s of [-1, 1]) {
+    const x = m.bx + s * 2;
+    g.rect(x - 1, m.shoulderY - 1, 3, 7, C.GREY);
+    g.rect(x - 1, m.shoulderY, 1, 5, C.WHITE);             // left-lit cylinder highlight
+    g.rect(x - 1, m.shoulderY - 1, 3, 1, C.WHITE);         // top cap
+    g.rect(x - 1, m.shoulderY + 6, 3, 1, C.GREY_D);        // nozzle
+    g.set(x, m.shoulderY + 7, C.ACC); g.set(x, m.shoulderY + 8, C.GLOW); // exhaust
+  }
+  g.rect(m.bx - 1, m.shoulderY + 1, 3, 1, C.GREY_D);       // center brace
+});
+BB('backpack', 'held', (g, r, m) => {
+  const x0 = m.bx - 4, y0 = m.shoulderY - 2;
+  g.rect(x0 - 1, y0 - 2, 11, 2, C.WOOD);                   // bedroll on top
+  g.set(x0 - 1, y0 - 2, C.GOLD_D); g.set(x0 + 9, y0 - 2, C.GOLD_D); // roll ties
+  g.rect(x0, y0, 9, 8, C.WOOD);                            // big pack body
+  g.rect(x0, y0 + 2, 9, 1, C.GOLD_D);                      // flap seam
+  g.set(m.bx, y0 + 3, C.GOLD);                             // buckle
+  g.set(x0, y0 + 5, C.GOLD_D); g.set(x0 + 8, y0 + 5, C.GOLD_D); // side straps
+});
+BB('flameCrest', 'head', FEATS.flameCrest.draw);           // crest reads the same from behind
+BB('snake', 'held', (g, r, m) => {
+  const y0 = m.by - m.bry + 2;
+  g.line(m.bx - m.brx, y0 + 4, m.bx + m.brx, y0 + 2, C.ACC2, 2); // coils across the back
+  g.line(m.bx - m.brx + 1, m.by + 2, m.bx + m.brx - 1, m.by + 3, C.ACC2, 2);
+  g.disc(m.bx + m.brx - 1, y0 - 1, 1.6, 1.4, C.ACC2);      // head over the shoulder,
+  g.set(m.bx + m.brx - 1, y0 - 3, C.ACC2);                 // facing away (no eye)
+});
+BB('tentacles', 'held', FEATS.tentacles.draw);             // sprout from the back, toward viewer
+BB('hydraHeads', 'held', (g, r, m) => {
+  for (const s of [-1, 1]) {                               // necks from the back; heads
+    const x0 = m.bx + s * (m.brx - 2);                     // face away (no eyes)
+    const xt = m.bx + s * (m.brx + 3);
+    g.line(x0, m.by - m.bry + 2, xt, m.headTop + 1, C.ACC2, 2);
+    g.disc(xt, m.headTop, 1.8, 1.5, C.ACC2);
+    g.set(xt, m.headTop - 2, C.ACC2);                      // crest nub
+  }
+});
+BB('spiderLegs', 'held', FEATS.spiderLegs.draw);           // legs arch over the back
+BB('shadowTwin', 'back', (g, r, m) => {
+  // twin peeks from the OTHER side from behind; it faces away too (no eyes)
+  g.disc(m.bx - 4, m.by - 1, m.brx - 1, m.bry - 1, C.XDARK);
+  g.disc(m.hx - 5, m.hy - 1, m.hw - 1, m.hh - 1, C.XDARK);
+});
+BB('ring', 'post', FEATS.ring.draw);                       // occlusion-aware orbit
+BB('finBack', 'held', (g, r, m) => {
+  // dorsal fin runs down the spine — center stage from behind
+  const x = m.bx, y0 = m.by - m.bry;
+  g.set(x, y0 - 4, C.ACC);
+  g.rect(x - 1, y0 - 3, 2, 1, C.ACC);
+  g.rect(x - 1, y0 - 2, 3, 1, C.ACC);
+  g.rect(x - 2, y0 - 1, 4, 1, C.ACC);
+  g.set(x, y0 + 2, C.ACC); g.set(x, y0 + 4, C.ACC);        // spine ridge bumps
+  g.line(m.bx + m.brx + 1, m.by + 1, m.bx + m.brx + 3, m.by - 2, C.ACC, 1); // tail fin
+  g.line(m.bx + m.brx + 1, m.by + 1, m.bx + m.brx + 3, m.by + 3, C.ACC, 1);
+});
+BB('sack', 'held', (g, r, m) => {
+  // the merchant's sack, slung over the shoulder — front and center now
+  const cx = m.bx + 3, cy = m.shoulderY + 2;
+  g.disc(cx, cy, 4.2, 4.6, C.WOOD);
+  g.line(cx + 2, cy - 4, m.bx + m.brx, m.shoulderY - 2, C.WOOD, 2); // tied neck
+  g.set(m.bx + m.brx, m.shoulderY - 3, C.GOLD_D);          // knot
+  g.set(cx - 2, cy, C.GOLD_D); g.set(cx, cy - 2, C.GOLD_D); // patch stitches
+  g.set(cx + 1, cy + 2, C.GOLD_D);
+});
+
+// ---------- body: back of the outfit ----------
+BB('armor', 'body', (g, r, m, o) => {
+  const main = o.gold ? C.GOLD : C.GREY, dark = o.gold ? C.GOLD_D : C.GREY_D;
+  clothe(g, m.bx - m.brx, m.by - m.bry, m.bx + m.brx, m.by + 2, main);
+  g.rect(m.bx - m.brx + 1, m.by + 2, m.brx * 2 - 1, 1, dark); // belt
+  g.disc(m.bx - m.brx + 1, m.shoulderY - 1, 1.8, 1.4, dark);  // pauldrons
+  g.disc(m.bx + m.brx - 1, m.shoulderY - 1, 1.8, 1.4, dark);
+  for (let y = m.by - m.bry + 1; y <= m.by + 1; y++)          // backplate seam
+    if (g.get(m.bx, y) === main) g.set(m.bx, y, dark);
+  g.rect(m.bx - 2, m.by - m.bry + 1, 5, 1, dark);             // collar rim
+});
+BB('robe', 'body', (g, r, m) => {
+  const ty = m.by - m.bry;
+  for (let y = ty; y <= 30; y++) {
+    const w = Math.min(m.brx + 2, 4 + Math.floor((y - ty) * 0.5));
+    g.rect(m.bx - w, y, w * 2 + 1, 1, C.CLOTH);
+  }
+  g.line(m.bx - m.brx + 1, m.shoulderY, m.handL[0] + 1, m.handL[1] - 1, C.CLOTH, m.armW);
+  g.line(m.bx + m.brx - m.armW, m.shoulderY, m.handR[0] - 1, m.handR[1] - 1, C.CLOTH, m.armW);
+  g.line(m.bx, ty + 2, m.bx, 29, C.CLOTH_D, 1);            // center back seam
+  g.rect(m.bx - 3, ty + 1, 7, 1, C.CLOTH_D);               // yoke
+});
+BB('kimono', 'body', (g, r, m) => {
+  const ty = m.by - m.bry;
+  for (let y = ty; y <= 30; y++) {
+    const w = Math.min(m.brx + 2, 4 + Math.floor((y - ty) * 0.45));
+    g.rect(m.bx - w, y, w * 2 + 1, 1, C.CLOTH);
+  }
+  g.line(m.bx - m.brx - 1, m.shoulderY, m.bx - m.brx - 3, m.shoulderY + 4, C.CLOTH, 3); // wide sleeves
+  g.line(m.bx + m.brx - 1, m.shoulderY, m.bx + m.brx + 1, m.shoulderY + 4, C.CLOTH, 3);
+  g.rect(m.bx - m.brx, m.by + 1, m.brx * 2 + 1, 2, C.GOLD); // obi
+  g.rect(m.bx - 2, m.by - 2, 5, 3, C.GOLD);                 // taiko knot on the back
+  g.rect(m.bx - 1, m.by - 1, 3, 1, C.GOLD_D);               // knot crease
+});
+BB('apron', 'body', (g, r, m) => {
+  clothe(g, m.bx - m.brx, m.by - m.bry, m.bx + m.brx, m.by + m.bry, C.WHITE); // jacket back
+  const ty = m.by - m.bry;
+  g.line(m.bx - 3, ty + 1, m.bx + 2, m.by, C.CLOTH, 1);    // strings crossing the back
+  g.line(m.bx + 3, ty + 1, m.bx - 2, m.by, C.CLOTH, 1);
+  g.rect(m.bx - m.brx + 2, m.by + 1, m.brx * 2 - 3, 1, C.CLOTH); // waist tie
+  g.set(m.bx - 2, m.by + 1, C.CLOTH_D); g.set(m.bx + 2, m.by + 1, C.CLOTH_D); // bow loops
+  g.set(m.bx - 3, m.by + 2, C.CLOTH); g.set(m.bx + 3, m.by + 2, C.CLOTH);     // dangling ends
+});
+BB('overalls', 'body', (g, r, m) => {
+  clothe(g, m.bx - m.brx, m.by - 1, m.bx + m.brx, m.by + m.bry, C.CLOTH);
+  g.rect(m.legLX, m.legY, m.legW, 3, C.CLOTH);
+  g.rect(m.legRX, m.legY, m.legW, 3, C.CLOTH);
+  g.line(m.bx - 3, m.by - m.bry + 1, m.bx + 3, m.by - 1, C.CLOTH, 1); // straps cross
+  g.line(m.bx + 3, m.by - m.bry + 1, m.bx - 3, m.by - 1, C.CLOTH, 1); // in an X
+  g.set(m.bx, m.by - 3, C.GOLD);                            // cross-point button
+});
+BB('suitTie', 'body', (g, r, m) => {
+  clothe(g, m.bx - m.brx, m.by - m.bry, m.bx + m.brx, m.by + m.bry, C.CLOTH);
+  g.rect(m.bx - 2, m.by - m.bry, 5, 1, C.CLOTH_D);          // collar
+  g.line(m.bx, m.by + 1, m.bx, m.by + m.bry - 1, C.CLOTH_D, 1); // jacket vent
+});
+BB('toga', 'body', FEATS.toga.draw);                        // drape + bare shoulder read from behind
+BB('gi', 'body', (g, r, m) => {
+  clothe(g, m.bx - m.brx, m.by - m.bry, m.bx + m.brx, m.by + m.bry - 1, C.WHITE);
+  g.line(m.bx, m.by - m.bry + 1, m.bx, m.by, C.GREY, 1);    // back seam
+  g.rect(m.bx - m.brx + 1, m.by + 1, m.brx * 2 - 1, 1, C.DARK); // belt
+});
+BB('hoodieBody', 'body', (g, r, m) => {
+  clothe(g, m.bx - m.brx, m.by - m.bry, m.bx + m.brx, m.by + m.bry, C.CLOTH);
+  const ty = m.by - m.bry;
+  g.rect(m.bx - 3, ty - 1, 7, 2, C.CLOTH_D);                // hood hanging on the back
+  g.rect(m.bx - 2, ty + 1, 5, 1, C.CLOTH_D);
+  g.set(m.bx, ty + 2, C.CLOTH_D);                           // hood point
+});
+BB('sailorShirt', 'body', FEATS.sailorShirt.draw);          // stripes wrap around
+BB('bandages', 'body', FEATS.bandages.draw);                // wraps read from any side
+BB('rags', 'body', FEATS.rags.draw);
+BB('chains', 'body', FEATS.chains.draw);                    // chain wraps the torso
+BB('circuit', 'body', FEATS.circuit.draw);                  // traces on the back plate
+BB('runesBody', 'body', FEATS.runesBody.draw);
+BB('furBody', 'body', FEATS.furBody.draw);
+BB('leafBody', 'body', FEATS.leafBody.draw);
+BB('rockBody', 'body', FEATS.rockBody.draw);
+BB('iceBody', 'body', FEATS.iceBody.draw);
+BB('lavaCracks', 'body', FEATS.lavaCracks.draw);
+BB('muscles', 'body', (g, r, m) => {
+  g.line(m.bx - 3, m.by - m.bry + 2, m.bx, m.by - m.bry + 4, C.SKIN_D, 1); // shoulder blades
+  g.line(m.bx + 3, m.by - m.bry + 2, m.bx, m.by - m.bry + 4, C.SKIN_D, 1);
+  g.line(m.bx, m.by - m.bry + 4, m.bx, m.by - 1, C.SKIN_D, 1); // spine furrow
+  g.line(m.bx - m.brx + 1, m.shoulderY, m.handL[0] + 1, m.handL[1] - 1, C.SKIN, 3); // beefy arms
+  g.line(m.bx + m.brx - 3, m.shoulderY, m.handR[0] - 1, m.handR[1] - 1, C.SKIN, 3);
+});
+BB('webSuit', 'body', FEATS.webSuit.draw);                  // webbing continues on the back
+BB('yinyang', 'body', FEATS.yinyang.draw);                  // back print
+BB('cross', 'body', FEATS.cross.draw);                      // medic back print
+BB('gem', 'body', FEATS.gem.draw);                          // crystal embedded in the back
+BB('bricks', 'body', FEATS.bricks.draw);
+BB('paperFolds', 'body', FEATS.paperFolds.draw);
+BB('drips', 'body', FEATS.drips.draw);
+BB('split', 'body', FEATS.split.draw);                      // hard shadow half works generically
+BB('mawashi', 'body', (g, r, m) => {
+  g.rect(m.bx - m.brx + 1, m.by + 2, m.brx * 2 - 1, 2, C.DARK);
+  g.rect(m.bx - 1, m.by, 3, 2, C.DARK);                     // back knot above the belt
+  g.set(m.bx - 1, m.by + 4, C.DARK); g.set(m.bx + 1, m.by + 4, C.DARK); // hanging ends
+});
+BB('scales', 'body', FEATS.scales.draw);
+BHIDE('extraEyes');                                         // forehead eyes face away
+BB('shoulderSpikes', 'body', FEATS.shoulderSpikes.draw);
+BB('labCoat', 'body', (g, r, m) => {
+  clothe(g, m.bx - m.brx, m.by - m.bry, m.bx + m.brx, m.by + m.bry, C.WHITE);
+  g.rect(m.bx - 2, m.by - m.bry, 5, 1, C.GREY);             // collar
+  g.line(m.bx, m.by - 1, m.bx, m.by + m.bry - 1, C.GREY, 1); // coat vent
+});
+// chest patterns are invisible from behind -> subtle seeded back detail
+BB('chestPattern', 'body', (g, r, m) => {
+  const kind = pick(r, ['yoke', 'stripe', 'patch']);
+  if (kind === 'yoke') {
+    g.rect(m.bx - 2, m.shoulderY, 5, 1, C.ACC);
+    g.set(m.bx - 3, m.shoulderY + 1, C.ACC); g.set(m.bx + 3, m.shoulderY + 1, C.ACC);
+  } else if (kind === 'stripe') {
+    g.rect(m.bx, m.by - m.bry + 2, 1, Math.max(2, Math.round(m.bry) - 2), C.ACC);
+  } else {                                                  // patch (small diamond)
+    g.set(m.bx, m.by - 3, C.ACC); g.set(m.bx - 1, m.by - 2, C.ACC);
+    g.set(m.bx + 1, m.by - 2, C.ACC); g.set(m.bx, m.by - 1, C.ACC);
+  }
+});
+
+// ---------- head: headgear from behind ----------
+BB('hornHelm', 'head', FEATS.hornHelm.draw);                // band + horns visible from the rear
+BB('wingHelm', 'head', FEATS.wingHelm.draw);
+BB('toque', 'head', (g, r, m) => {                          // plain cylinder from behind
+  g.rect(m.hx - 3, m.headTop - 4, 7, 4, C.WHITE);
+  g.rect(m.hx - 3, m.headTop, 7, 1, C.GREY);
+});
+BB('crown', 'head', (g, r, m) => {                          // band + points, no front jewel
+  g.rect(m.hx - 3, m.headTop - 1, 7, 2, C.GOLD);
+  g.set(m.hx - 3, m.headTop - 2, C.GOLD); g.set(m.hx, m.headTop - 2, C.GOLD);
+  g.set(m.hx + 3, m.headTop - 2, C.GOLD);
+});
+BB('wizardHat', 'head', FEATS.wizardHat.draw);              // symmetric cone
+BB('hoodMask', 'head', (g, r, m) => {
+  // ninja cowl covers the head fully from behind; the knot is center-stage
+  for (let y = m.headTop - 1; y <= Math.round(m.hy + m.hh); y++)
+    for (let x = m.hx - m.hw - 1; x <= m.hx + m.hw + 1; x++) {
+      const v = g.get(x, y);
+      if (v && v !== C.OUT) g.set(x, y, C.DARK);
+    }
+  g.rect(m.hx - 1, m.eyeY, 3, 1, C.XDARK);                  // knot
+  g.set(m.hx, m.eyeY, C.GREY_D);                            // knot highlight
+  g.set(m.hx - 1, m.eyeY + 1, C.GREY_D); g.set(m.hx + 1, m.eyeY + 2, C.GREY_D); // tails
+});
+BB('kabuto', 'head', (g, r, m) => {
+  g.rect(m.hx - m.hw + 1, m.headTop - 1, m.hw * 2 - 1, 2, C.GREY_D);
+  for (const s of [-1, 1]) {                                // flared side flaps
+    g.set(m.hx + s * m.hw, m.headTop + 1, C.GREY_D);
+    g.set(m.hx + s * m.hw, m.headTop + 2, C.GREY_D);
+  }
+  g.rect(m.hx - 3, Math.round(m.hy + m.hh) - 1, 7, 2, C.GREY_D); // shikoro neck guard
+  g.set(m.hx - 2, m.headTop - 3, C.GOLD); g.set(m.hx + 2, m.headTop - 3, C.GOLD); // crest tips peek
+});
+BB('halo', 'head', FEATS.halo.draw);                        // still floats
+BB('cowboyHat', 'head', FEATS.cowboyHat.draw);
+BB('nightcap', 'head', FEATS.nightcap.draw);                // droop + pompom visible
+BB('santaHat', 'head', FEATS.santaHat.draw);
+BB('galea', 'head', (g, r, m) => {
+  g.rect(m.hx - m.hw + 1, m.headTop - 1, m.hw * 2 - 1, 2, C.GREY);
+  g.rect(m.hx - 2, Math.round(m.hy + m.hh) - 1, 5, 1, C.GREY); // neck guard
+  g.rect(m.hx, m.headTop - 3, 1, 3, C.ACC);                 // crest seen end-on
+});
+BB('gladHelm', 'head', (g, r, m) => {
+  for (let y = m.headTop - 1; y <= Math.round(m.hy + m.hh) - 1; y++)
+    for (let x = m.hx - m.hw; x <= m.hx + m.hw; x++) {
+      const v = g.get(x, y); if (v && v !== C.OUT) g.set(x, y, C.GOLD);
+    }
+  g.line(m.hx - 2, m.headTop - 2, m.hx + 2, m.headTop - 2, C.GOLD_D, 1); // crest arc
+});
+BB('knightHelm', 'head', (g, r, m) => {
+  for (let y = m.headTop - 1; y <= Math.round(m.hy + m.hh) - 1; y++)
+    for (let x = m.hx - m.hw; x <= m.hx + m.hw; x++) {
+      const v = g.get(x, y); if (v && v !== C.OUT) g.set(x, y, C.GREY);
+    }
+  g.line(m.hx, m.headTop - 2, m.hx, m.eyeY, C.GREY_D, 1);   // ridge down the back
+});
+BB('hood', 'head', (g, r, m) => {
+  // from behind the hood covers the whole head — no face window
+  for (let y = m.headTop - 2; y <= Math.round(m.hy + m.hh); y++)
+    for (let x = m.hx - m.hw - 1; x <= m.hx + m.hw + 1; x++) {
+      const v = g.get(x, y);
+      if ((v && v !== C.OUT) || y <= m.headTop) g.set(x, y, C.CLOTH_D);
+    }
+  g.set(m.hx, m.headTop - 3, C.CLOTH_D);                    // peak
+  g.rect(m.bx - 3, m.by - m.bry, 7, 1, C.CLOTH_D);          // drape on shoulders
+});
+BB('mohawk', 'head', (g, r, m) => {
+  // edge-on fin: a thin strip over the crown running down the back of
+  // the scalp — exactly what a mohawk looks like from behind
+  g.rect(m.hx, m.headTop - 4, 1, 5, C.ACC);
+  g.rect(m.hx, m.headTop + 1, 1, Math.max(1, m.eyeY - m.headTop), C.ACC);
+});
+BB('spaceHelm', 'head', FEATS.spaceHelm.draw);              // glass dome all around
+BB('laurel', 'head', FEATS.laurel.draw);                    // wreath wraps the head
+BB('strawHat', 'head', FEATS.strawHat.draw);
+BB('minerHelm', 'head', (g, r, m) => {                      // helm without the front lamp
+  g.rect(m.hx - m.hw + 1, m.headTop - 2, m.hw * 2 - 1, 3, C.GOLD);
+  g.rect(m.hx - m.hw + 1, m.headTop, m.hw * 2 - 1, 1, C.GOLD_D);
+});
+BB('beanie', 'head', FEATS.beanie.draw);
+BB('headphones', 'head', FEATS.headphones.draw);            // band + cups from behind
+BB('topknot', 'head', FEATS.topknot.draw);
+BB('bunHair', 'head', (g, r, m) => {
+  // hair covers the back of the head; the bun is now front and center
+  for (let y = m.headTop - 1; y <= m.eyeY + 1; y++)
+    for (let x = m.hx - m.hw; x <= m.hx + m.hw; x++) {
+      const v = g.get(x, y); if (v && v !== C.OUT) g.set(x, y, C.DARK);
+    }
+  g.disc(m.hx, m.headTop - 1, 1.6, 1.3, C.DARK);            // bun
+  g.line(m.hx + 1, m.headTop - 3, m.hx + 3, m.headTop - 4, C.GOLD, 1); // kanzashi pin
+});
+BB('mikoBow', 'head', FEATS.mikoBow.draw);                  // side bow visible from rear
+BB('flower', 'head', FEATS.flower.draw);
+BB('clownWig', 'head', FEATS.clownWig.draw);                // puffs all around
+BB('devilHorns', 'head', FEATS.devilHorns.draw);
+BB('batEars', 'head', FEATS.batEars.draw);
+BB('pelt', 'head', (g, r, m) => {
+  g.rect(m.hx - m.hw, m.headTop - 2, m.hw * 2 + 1, 2, C.CLOTH_D); // pelt cap
+  g.rect(m.hx - 3, m.headTop - 3, 7, 1, C.CLOTH_D);
+  g.set(m.hx - m.hw + 1, m.headTop - 3, C.CLOTH_D); g.set(m.hx + m.hw - 1, m.headTop - 3, C.CLOTH_D); // ears
+  g.rect(m.bx - 2, m.shoulderY - 1, 5, 6, C.CLOTH_D);       // pelt drapes down the back
+  g.rect(m.bx - m.brx - 1, m.shoulderY - 1, 2, 5, C.CLOTH_D); // side paws
+  g.rect(m.bx + m.brx, m.shoulderY - 1, 2, 5, C.CLOTH_D);
+  g.set(m.bx - 1, m.shoulderY + 5, C.CLOTH_D); g.set(m.bx + 1, m.shoulderY + 5, C.CLOTH_D); // ragged hem
+});
+BB('fedora', 'head', FEATS.fedora.draw);
+BB('kasa', 'head', FEATS.kasa.draw);                        // conical, same all around
+BB('emoFringe', 'head', (g, r, m, o) => {
+  const col = o.acc ? C.ACC : C.DARK;
+  for (let y = m.headTop - 1; y <= m.eyeY; y++)             // hair covers the back of the head
+    for (let x = m.hx - m.hw; x <= m.hx + m.hw; x++) {
+      const v = g.get(x, y); if (v && v !== C.OUT) g.set(x, y, col);
+    }
+  for (let x = m.hx - m.hw + 1; x <= m.hx + m.hw - 1; x += 2) // ragged bottom edge
+    g.set(x, m.eyeY + 1, col);
+  g.set(m.hx - m.hw - 1, m.headTop + 2, col);               // spikes jut past the
+  g.set(m.hx + m.hw + 1, m.headTop + 1, col);               // silhouette edge
+  g.set(m.hx - m.hw, m.headTop - 2, col);
+  g.set(m.hx + 2, m.headTop - 2, col);
+});
+BB('pompadour', 'head', (g, r, m) => {                      // quiff from behind, no swoosh
+  g.rect(m.hx - m.hw + 1, m.headTop - 2, m.hw * 2 - 1, 2, C.GOLD);
+  g.set(m.hx, m.headTop - 3, C.GOLD);
+});
+BB('melonHelm', 'head', FEATS.melonHelm.draw);              // rind stripes wrap around
+BB('lighthouseHat', 'head', FEATS.lighthouseHat.draw);      // tower glows all around
+BB('turban', 'head', (g, r, m) => {                         // wrap without the front jewel
+  g.rect(m.hx - m.hw + 1, m.headTop - 2, m.hw * 2 - 1, 3, C.CLOTH);
+  g.line(m.hx - m.hw + 1, m.headTop - 1, m.hx + m.hw - 1, m.headTop, C.CLOTH_L, 1);
+});
+BB('pikaEars', 'head', FEATS.pikaEars.draw);
+BB('leafHead', 'head', FEATS.leafHead.draw);
+BB('headband', 'head', (g, r, m) => {
+  g.rect(m.hx - m.hw, m.headTop + 1, m.hw * 2 + 1, 1, C.RED);
+  g.set(m.hx, m.headTop + 2, C.RED);                        // knot at the back
+  g.set(m.hx - 1, m.headTop + 3, C.RED); g.set(m.hx + 1, m.headTop + 3, C.RED); // tails
+  g.set(m.hx - 1, m.headTop + 4, C.RED);
+});
+BB('goggles', 'head', (g, r, m) => {                        // strap around the back of the head
+  g.rect(m.hx - m.hw, m.headTop, m.hw * 2 + 1, 1, C.GREY_D);
+  g.set(m.hx, m.headTop, C.GREY);                           // buckle
+});
+
+// ---------- face gear: hidden except side hints ----------
+BB('glasses', 'face', (g, r, m) => {                        // temple arms only
+  g.set(m.hx - m.hw, m.eyeY, C.GREY); g.set(m.hx + m.hw, m.eyeY, C.GREY);
+});
+BB('sunglasses', 'face', (g, r, m) => {
+  g.set(m.hx - m.hw, m.eyeY, C.DARK); g.set(m.hx + m.hw, m.eyeY, C.DARK);
+});
+BB('visor', 'face', (g, r, m, o) => {
+  // strap band wrapping the back of the head + glow spill at the edges
+  const col = o.red ? C.RED : C.GLOW;
+  g.rect(m.hx - m.hw, m.eyeY - 1, m.hw * 2 + 1, 2, C.DARK);
+  g.set(m.hx - m.hw, m.eyeY, col); g.set(m.hx + m.hw, m.eyeY, col);
+});
+BB('eyepatch', 'face', (g, r, m) => {                       // strap across the back of the head
+  g.line(m.hx - m.hw, m.eyeY - 1, m.hx + m.hw, m.eyeY - 2, C.DARK, 1);
+});
+BB('beard', 'face', (g, r, m, o) => {                       // tufts peek past the jaw
+  const col = o.white ? C.WHITE : C.WOOD;
+  g.set(m.hx - m.hw - 1, m.snoutY, col); g.set(m.hx + m.hw + 1, m.snoutY, col);
+  g.set(m.hx - m.hw - 1, m.snoutY + 1, col); g.set(m.hx + m.hw + 1, m.snoutY + 1, col);
+});
+BB('maskMuzzle', 'face', (g, r, m) => {                     // twin straps around the head
+  g.rect(m.hx - m.hw, m.eyeY + 1, m.hw * 2 + 1, 1, C.GREY_D);
+});
+BHIDE('clownNose');
+BHIDE('facePaint');
+BHIDE('thirdEye');
+BHIDE('monocle');
+BHIDE('snoutRing');
+BB('tusks', 'face', (g, r, m) => {                          // tips curl past the cheeks
+  for (const s of [-1, 1]) {
+    g.set(m.hx + s * (m.hw + 1), m.snoutY, C.WHITE);
+    g.set(m.hx + s * (m.hw + 2), m.snoutY - 1, C.WHITE);
+  }
+});
+BHIDE('fangs');
+BHIDE('closedEyes');
+BB('stitches', 'face', FEATS.stitches.draw);                // scalp + body stitches visible
+BHIDE('bandaid');
+BHIDE('tears');
+BHIDE('cheekDots');
+BB('spideyEyes', 'face', (g, r, m) => {                     // full mask: back of the head webbed
+  for (let y = m.headTop - 1; y <= Math.round(m.hy + m.hh); y++)
+    for (let x = m.hx - m.hw - 1; x <= m.hx + m.hw + 1; x++) {
+      const v = g.get(x, y); if (v && v !== C.OUT) g.set(x, y, C.CLOTH);
+    }
+  g.line(m.hx, m.headTop, m.hx, m.eyeY + 2, C.XDARK, 1);    // web meridian
+  g.line(m.hx - 3, m.eyeY, m.hx + 3, m.eyeY, C.XDARK, 1);   // web ring
+});
+BB('luchaMask', 'face', (g, r, m) => {                      // mask back + lace seam
+  for (let y = m.headTop - 1; y <= Math.round(m.hy + m.hh); y++)
+    for (let x = m.hx - m.hw - 1; x <= m.hx + m.hw + 1; x++) {
+      const v = g.get(x, y); if (v && v !== C.OUT) g.set(x, y, C.ACC);
+    }
+  g.line(m.hx, m.headTop - 1, m.hx, m.eyeY + 1, C.ACC_L, 1); // crest seam
+  g.set(m.hx, m.eyeY + 2, C.WHITE);                          // lace knot
+});
+BB('scarf', 'face', FEATS.scarf.draw);                      // wrap + flying tail
+BB('towelNeck', 'face', FEATS.towelNeck.draw);              // towel over the shoulders
+BB('bandana', 'face', (g, r, m) => {                        // the knot faces the camera now
+  const y = Math.round(m.hy + m.hh) - 1;
+  g.rect(m.hx - 3, y, 7, 1, C.RED);
+  g.set(m.hx, y + 1, C.RED);                                // knot
+  g.set(m.hx - 1, y + 2, C.RED); g.set(m.hx + 1, y + 2, C.RED); // tails
+});
+
+// ---------- held items: behind the body, tips peek past the edge ----------
+BSAME('axe', 'back');                                       // axe head over the shoulder
+BSAME('sword', 'back');                                     // blade above the shoulder line
+BB('katana', 'held', (g, r, m) => {
+  // strapped across the back — saya low-left, tsuka above the right shoulder
+  g.line(m.bx - 4, m.by + 3, m.bx + 4, m.by - 5, C.DARK, 2); // saya
+  g.line(m.bx - 3, m.by + 3, m.bx + 3, m.by - 3, C.GREY, 1); // lacquer shine
+  g.set(m.bx - 5, m.by + 4, C.DARK);                         // saya tip past the hip
+  g.set(m.bx + 5, m.by - 5, C.GOLD);                         // tsuba
+  g.line(m.bx + 6, m.by - 6, m.bx + 7, m.by - 8, C.WOOD, 1); // tsuka over the shoulder
+});
+BSAME('saber', 'back');
+BSAME('pan', 'back');                                       // pan disc peeks past the edge
+BSAME('staffOrb', 'back');                                  // orb floats above the head
+BSAME('walkingStick', 'back');
+BSAME('hammer', 'back');
+BSAME('book', 'back');
+BSAME('lantern', 'back');
+BSAME('mic', 'back');
+BB('shield', 'held', (g, r, m, o) => {
+  // slung on the back — the painted face toward the camera, dominant
+  if (o.round) {
+    const cx = m.bx, cy = m.by - 1;
+    g.disc(cx, cy, 4.4, 4.8, C.ACC);
+    for (let t = 0; t < 40; t++) {
+      const th = (t / 40) * Math.PI * 2;
+      g.set(cx + Math.round(Math.cos(th) * 4.4), cy + Math.round(Math.sin(th) * 4.8), C.GREY_D);
+    }
+    g.disc(cx, cy, 1.4, 1.4, C.GREY);                       // boss
+    g.line(cx - 3, cy - 3, cx - 1, cy - 1, C.ACC_L, 1);     // plank highlight
+  } else {
+    g.rect(m.bx - 3, m.shoulderY - 2, 7, 10, C.GREY);
+    g.rect(m.bx - 3, m.shoulderY - 2, 7, 1, C.GREY_D);      // rims
+    g.rect(m.bx - 3, m.shoulderY + 7, 7, 1, C.GREY_D);
+    g.rect(m.bx - 3, m.shoulderY - 1, 1, 8, C.GREY_D);
+    g.rect(m.bx + 3, m.shoulderY - 1, 1, 8, C.GREY_D);
+    g.set(m.bx, m.shoulderY + 2, C.ACC);                    // emblem
+  }
+});
+BSAME('spear', 'back');
+BSAME('trident', 'back');
+BSAME('net', 'back');
+BB('guitar', 'held', (g, r, m) => {
+  // slung across the back, big — neck up-left, body over the hip
+  g.disc(m.bx + 2, m.by + 1, 3, 2.6, C.WOOD);
+  g.disc(m.bx + 2, m.by + 1, 1.2, 1, C.DARK);
+  g.line(m.bx, m.by - 1, m.bx - 6, m.by - 7, C.WOOD, 2);    // neck
+  g.rect(m.bx - 8, m.by - 9, 2, 2, C.DARK);                 // headstock
+  g.line(m.bx + 2, m.by, m.bx - 5, m.by - 7, C.WHITE, 1);   // strings
+  g.line(m.bx - m.brx + 1, m.shoulderY - 1, m.bx + 1, m.by - 1, C.GOLD_D, 1); // strap
+});
+BSAME('pickaxe', 'back');
+BSAME('coin', 'back');
+BSAME('fan', 'back');
+BSAME('balloon', 'back');                                   // floats high past the shoulder
+BSAME('pokeball', 'back');
+BB('boxGloves', 'held', FEATS.boxGloves.draw);              // hands sit outside the silhouette
+BSAME('lightningBolt', 'back');                             // bolt blazes past the shoulder
+BSAME('torch', 'back');
+BSAME('oar', 'back');
+BSAME('broom', 'back');
+BSAME('whip', 'back');
+BSAME('flag', 'back');                                      // banner high above
+BSAME('orb', 'back');                                       // mostly eclipsed by the body
+BSAME('drumstick', 'back');
+BSAME('appleHeld', 'back');
+BSAME('melonSlice', 'back');
+BSAME('bellHeld', 'back');
+BSAME('dowsingRod', 'back');
+BSAME('dumbbell', 'back');                                  // plates peek at both sides
+BSAME('bomb', 'back');                                      // fuse spark over the shoulder
+BSAME('magnet', 'back');
+BB('gauntlet', 'held', FEATS.gauntlet.draw);                // fist outside the silhouette
+BSAME('signCard', 'back');                                  // card held high
+BSAME('scroll', 'back');
+BSAME('key', 'back');
+BSAME('rocket', 'back');
+BSAME('mirror', 'back');
+
+// ---------- post garnish: ambient, reads from any side ----------
+BB('stars', 'post', (g, r, m) => {
+  for (let i = 0; i < 5; i++) {                             // ambient sparkle (as front)
+    const x = m.bx + ri(r, -9, 9), y = ri(r, Math.max(1, m.headTop - 4), m.by);
+    if (!g.get(x, y)) g.set(x, y, i % 2 ? C.GLOW : C.ACC_L);
+  }
+  for (const [dx, dy] of [[-2, -4], [2, -2], [0, 0], [-3, -1]]) { // starfield speckle
+    const x = m.bx + dx, y = m.by + dy;                     // on the back itself
+    const v = g.get(x, y);
+    if (v && v !== C.OUT && v !== C.SNOUT && v !== C.SNOUT_D) g.set(x, y, dx % 2 ? C.ACC_L : C.GLOW);
+  }
+});
+BSAME('wisps');
+BSAME('sparkBolts');
+BSAME('raindrops');
+BSAME('soundArcs');
+BSAME('musicNotes');
+BSAME('speedLines');
+BSAME('swirl');
+BSAME('windLines');
+BSAME('zzz');
+BSAME('qmark');
+BSAME('sunrays');
+BSAME('glitchPix');
+
+// ---------- back generation ----------
+// Hand-held items must MIRROR around the body axis in the back view: an
+// item drawn at handR (screen-right = the pig's LEFT hand from the front)
+// has to appear screen-LEFT from behind or the character switches hands
+// between views. Painters listed here render into a scratch grid that is
+// blitted mirrored (cells around column bx, sub-cell dots included).
+// Slung/back-mounted custom painters (katana, shield, guitar, sack, snake)
+// and body-centered/symmetric ones (orb, boxGloves) stay unmirrored.
+const BACK_MIRRORED = new Set([
+  'axe', 'sword', 'saber', 'pan', 'staffOrb', 'walkingStick', 'hammer',
+  'book', 'lantern', 'mic', 'spear', 'trident', 'net', 'pickaxe', 'coin',
+  'fan', 'balloon', 'pokeball', 'lightningBolt', 'torch', 'oar', 'broom',
+  'whip', 'flag', 'drumstick', 'appleHeld', 'melonSlice', 'bellHeld',
+  'dowsingRod', 'dumbbell', 'bomb', 'magnet', 'signCard', 'scroll', 'key',
+  'rocket', 'mirror', 'gauntlet',
+]);
+function drawBackFeat(g, r, m, f) {
+  if (!BACK_MIRRORED.has(f.name)) { f.b.draw(g, r, m, f.o); return; }
+  const tmp = new Grid();
+  f.b.draw(tmp, r, m, f.o);                                // same r stream
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const v = tmp.g[y * N + x];
+    if (v) g.set(2 * m.bx - x, y, v);                      // mirror around bx
+  }
+  for (const [dx, dy, c] of tmp.dots) g.dots.push([4 * m.bx + 1 - dx, dy, c]);
+}
+
+function generateBackGrid(key, cre, def) {
+  // SAME seed string as the front so planBase replays the identical
+  // proportion wobble — front and back share stance, head size, belly.
+  const r = mulberry32(fnv('nv-nike:' + key));
+  const g = new Grid();
+  const feats = def.f.map(parseFeat);
+  if (!def.plain && !feats.some((f) => BODY_LAYER.has(f.name)))
+    feats.push({ name: 'chestPattern', o: {} });            // -> back detail variant
+  const tall = feats.some((f) => FEATS[f.name].tall);
+  const m = planBase(r, def.s || 'biped', tall && (def.s || 'biped') === 'biped');
+  m.hx += 1;                                                // 3/4 hint: facing upper-right
+  // derived metrics BEFORE any painter (back-layer held items need them)
+  m.headTop = Math.round(m.hy - m.hh);
+  m.eyeY = m.hy - 1;
+  m.eyeDX = Math.max(2, Math.round(m.hw * 0.55));
+  m.snoutY = m.hy + 2;
+  const resolved = feats
+    .map((f) => ({ ...f, b: BACKS[f.name] }))
+    .filter((f) => f.b && f.b !== 'hidden');
+  const byLayer = (layer) => resolved.filter((f) => f.b.layer === layer);
+  for (const f of byLayer('back')) drawBackFeat(g, r, m, f);
+  drawPigBack(g, r, m);
+  for (const layer of ['body', 'head', 'face', 'held'])
+    for (const f of byLayer(layer)) drawBackFeat(g, r, m, f);
+  shadePass(g);
+  const { dx, dy } = anchorPass(g);
+  m.hx += dx; m.hy += dy; m.bx += dx; m.by += dy; m.headTop += dy; m.eyeY += dy; m.snoutY += dy;
+  m.handL = [m.handL[0] + dx, m.handL[1] + dy]; m.handR = [m.handR[0] + dx, m.handR[1] + dy];
+  outlinePass(g);
+  for (const f of byLayer('post')) f.b.draw(g, r, m, f.o);
+  garnishPass(g, r, cre.rarity);
+  return { g, m };
+}
+
+// ---------- back QC sheets: front | back pairs ----------
+function makeBackSheets(entries, perSheet = 20) {
+  const paths = [];
+  const COLS = 4, SCALE = 2;
+  const TILE_W = 64 * SCALE * 2 + 28, TILE_H = 64 * SCALE + 40;
+  for (let s = 0; s * perSheet < entries.length; s++) {
+    const chunk = entries.slice(s * perSheet, (s + 1) * perSheet);
+    const rows = Math.ceil(chunk.length / COLS);
+    const cv = createCanvas(COLS * TILE_W, rows * TILE_H);
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#2a2a3e'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.imageSmoothingEnabled = false;
+    chunk.forEach((e, i) => {
+      const cx = (i % COLS) * TILE_W, cy = Math.floor(i / COLS) * TILE_H;
+      ctx.fillStyle = '#1c1c2c';
+      ctx.fillRect(cx + 4, cy + 4, TILE_W - 8, 64 * SCALE + 4);
+      ctx.drawImage(e.canvas, cx + 6, cy + 6, 64 * SCALE, 64 * SCALE);
+      ctx.drawImage(e.back, cx + 64 * SCALE + 18, cy + 6, 64 * SCALE, 64 * SCALE);
+      ctx.fillStyle = '#e8e8f0'; ctx.font = '11px "Liberation Sans"'; ctx.textAlign = 'center';
+      ctx.fillText(e.key + '  (front | back)', cx + TILE_W / 2, cy + 64 * SCALE + 22);
+      ctx.fillStyle = '#9090b0'; ctx.font = '9px "Liberation Sans"';
+      ctx.fillText(e.featStr.slice(0, 34), cx + TILE_W / 2, cy + 64 * SCALE + 34);
+    });
+    const p = path.join(BACK_SHEET_DIR, `backs-${String(s + 1).padStart(2, '0')}.png`);
+    fs.writeFileSync(p, cv.toBuffer('image/png'));
+    paths.push(p);
+  }
+  return paths;
+}
+
+function makeBackCalloutSheet(entries, names) {
+  const wanted = names.map((n) => entries.find((e) => e.key === n)).filter(Boolean);
+  const COLS = 3, SCALE = 3, TILE_W = 64 * SCALE * 2 + 36, TILE_H = 64 * SCALE + 44;
+  const rows = Math.ceil(wanted.length / COLS);
+  const cv = createCanvas(COLS * TILE_W, rows * TILE_H);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#2a2a3e'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.imageSmoothingEnabled = false;
+  wanted.forEach((e, i) => {
+    const cx = (i % COLS) * TILE_W, cy = Math.floor(i / COLS) * TILE_H;
+    ctx.fillStyle = '#1c1c2c';
+    ctx.fillRect(cx + 6, cy + 6, 64 * SCALE + 4, 64 * SCALE + 4);
+    ctx.fillRect(cx + 64 * SCALE + 22, cy + 6, 64 * SCALE + 4, 64 * SCALE + 4);
+    ctx.drawImage(e.canvas, cx + 8, cy + 8, 64 * SCALE, 64 * SCALE);
+    ctx.drawImage(e.back, cx + 64 * SCALE + 24, cy + 8, 64 * SCALE, 64 * SCALE);
+    ctx.fillStyle = '#e8e8f0'; ctx.font = '13px "Liberation Sans"'; ctx.textAlign = 'center';
+    ctx.fillText(e.key + '  (front | back)', cx + TILE_W / 2, cy + 64 * SCALE + 26);
+    ctx.fillStyle = '#9090b0'; ctx.font = '10px "Liberation Sans"';
+    ctx.fillText(e.featStr.slice(0, 44), cx + TILE_W / 2, cy + 64 * SCALE + 38);
+  });
+  const p = path.join(BACK_SHEET_DIR, 'backs-callouts.png');
+  fs.writeFileSync(p, cv.toBuffer('image/png'));
+  return p;
+}
+
+// =====================================================================
 // THE ROSTER — explicit per-name mapping for ALL 292 nikes.
 // s: stance ('biped' default, 'chunky', 'piglet'); f: features (1-3,
 // '#opt' suffixes); plain: skip even the seeded chest pattern.
@@ -2055,6 +2813,8 @@ function makeCorruptSheet(pairs) {
 // ---------- main ----------
 async function main() {
   fs.mkdirSync(SHEET_DIR, { recursive: true });
+  fs.mkdirSync(BACK_SHEET_DIR, { recursive: true });
+  fs.mkdirSync(BACK_DIR, { recursive: true });
   const nikes = Object.entries(CREATURES).filter(([, c]) => c.isNike === true);
   console.log(`nikes: ${nikes.length} of ${Object.keys(CREATURES).length} creatures`);
 
@@ -2066,6 +2826,20 @@ async function main() {
     console.error('MAPPING GAP — missing:', missing, 'extra:', extra);
     process.exit(1);
   }
+  // back-variant coverage: every feature needs a back painter or an
+  // explicit 'hidden' marker
+  const noBack = Object.keys(FEATS).filter((k) => !BACKS[k]);
+  if (noBack.length) {
+    console.error('BACK GAP — features without a back variant:', noBack);
+    process.exit(1);
+  }
+  const backStats = { custom: 0, reused: 0, hidden: 0 };
+  for (const k of Object.keys(BACKS)) {
+    if (BACKS[k] === 'hidden') backStats.hidden++;
+    else if (BACKS[k].draw === FEATS[k].draw) backStats.reused++;
+    else backStats.custom++;
+  }
+  console.log(`back variants: ${backStats.custom} custom, ${backStats.reused} reused-as-is, ${backStats.hidden} hidden`);
 
   const corruptKeys = new Set(
     fs.readdirSync(CORRUPT_DIR).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4)));
@@ -2088,6 +2862,12 @@ async function main() {
       `skin=${hexOf(slots.skin)} cloth=${hexOf(slots.cloth)} acc=${hexOf(slots.acc)} acc2=${hexOf(slots.acc2)}`,
       slots.src].join(' | '));
     const entry = { key: sk, cre, canvas, featStr };
+    // back-view battle sprite (player team is seen from behind). No
+    // corrupted back variants — the player's nikes are purified.
+    const { g: bgGrid } = generateBackGrid(sk, cre, def);
+    const backCanvas = renderPNG(bgGrid, pal);
+    fs.writeFileSync(path.join(BACK_DIR, sk + '.png'), backCanvas.toBuffer('image/png'));
+    entry.back = backCanvas;
     if (corruptKeys.has(sk)) {
       const cg = corruptGrid(sk, g, m);
       const cc = renderPNG(cg, corruptPalette(pal));
@@ -2107,6 +2887,9 @@ async function main() {
   const cp = await makeCalloutSheet(entries, callouts);
   const corruptSheet = makeCorruptSheet(entries.filter((e) => e.corrupt));
   console.log('sheets:', [...sheets, cp, corruptSheet].join(' '));
+  const backSheets = makeBackSheets(entries);
+  const backCallouts = makeBackCalloutSheet(entries, callouts);
+  console.log('back sheets:', [...backSheets, backCallouts].join(' '));
 }
 
 main();
