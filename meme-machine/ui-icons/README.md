@@ -2,7 +2,7 @@
 
 UI icon assets for the meme-machine SPA toggle buttons + similar in-app controls.
 
-**Scope**: in-app UI icons rendered next to button labels — distinct from `cast/` (character reference PNGs read by Seedream / GPT Image 2 at render time), `classic-nike/` (Nike photo templates), and `social-preview/` (og-card + apple-touch-icon for OG/Twitter Card thumbnails).
+**Scope**: in-app UI icons rendered next to button labels — distinct from `cast/` (character reference PNGs used at render time), `classic-nike/` (Nike photo templates), and `social-preview/` (og-card + apple-touch-icon for OG/Twitter Card thumbnails).
 
 ## Current files
 
@@ -24,7 +24,7 @@ UI icon assets for the meme-machine SPA toggle buttons + similar in-app controls
 https://raw.githubusercontent.com/DrCalebL/nikeverse-assets/main/meme-machine/ui-icons/<filename>.png
 ```
 
-Append `?v=N` query-param cache-bust on subsequent edits to force CDN refresh (same convention as `social-preview/og-card.png?v=1` from Wave-19.Z23).
+Append `?v=N` query-param cache-bust on subsequent edits to force CDN refresh (same convention as `social-preview/og-card.png?v=1`).
 
 ## Adding a new UI icon
 

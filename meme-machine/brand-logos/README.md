@@ -4,13 +4,11 @@ Brand and logo reference assets used by the meme engine when a meme's topic ment
 
 ## How these are used
 
-The render model (GPT Image 2) takes these PNGs as **reference images** alongside the meme's primary character refs. When the meme's `image_brief` describes a Cardano-labeled token, a Midnight Network badge, etc., the render model uses the reference to learn what the logo looks like + reproduces it from scratch into the new scene.
-
-This is the **same mechanism** as character refs in `cast/` — visual identity anchoring via cross-image-consistency, NOT programmatic compositing. The model never stamps these PNGs onto the output; it learns the mark and re-draws it.
+The render model takes these PNGs as **reference images** alongside the meme's primary character references. When the scene calls for a Cardano-labeled token, a Midnight Network badge, etc., the reference lets the render show the mark accurately.
 
 ## File spec
 
-- **Format**: PNG (JPG works too — transparency is not required because there's no compositing)
+- **Format**: PNG (JPG works too — transparency is not required)
 - **Canvas**: square, ≥512×512px (1024×1024 preferred for crisp small renders)
 - **Logo**: clearly visible against any solid background (white / black / brand-matching backdrop are all fine)
 - **Filename**: lowercase, hyphen-separated if multi-word
@@ -20,14 +18,11 @@ This is the **same mechanism** as character refs in `cast/` — visual identity 
 
 ## Trigger registration
 
-A logo file in this folder is half the wiring. The other half lives in `server.js`:
+A logo file in this folder is half the wiring. The other half is server-side:
 
-1. Add the logo URL to a `BRAND_LOGO_REFS` registry (parallel to `CAST_REFS`).
-2. Add a trigger regex to a brand-detection helper (parallel to `detectCastRefs` / `detectPublicFigures`).
-3. Inject the ref into the per-render `image_urls` array when the trigger fires.
-4. Add a Layer-1 prompt-side directive telling the LLM the brand-logo PNG is available so it can describe the meme using the named brand confidently.
-
-See CLAUDE.md "Adding a new CAST CHARACTER" section in the meme-machine repo for the parallel pattern.
+1. Register the logo URL in the brand-logo config.
+2. Add a trigger term so the brand is detected in a meme's topic.
+3. The reference is then attached automatically when the trigger fires.
 
 ## Current trigger semantics (locked at operator request)
 
